@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { groupForecastByDay } from "@/lib/forecast";
+import { groupForecastByDay, getClothingAdvice } from "@/lib/forecast";
 
 export default function Home() {
   const [cityInput, setCityInput] = useState("Tokyo");
@@ -167,6 +167,18 @@ export default function Home() {
                   <p className="text-xs text-slate-500">降水確率</p>
                   <p className="text-lg font-semibold">{selectedDay.maxPop}%</p>
                 </div>
+              </div>
+
+              {/* 服装・持ち物のアドバイス */}
+              <div className="w-full rounded-lg bg-sky-50 border border-sky-100 px-4 py-3">
+                <p className="text-xs font-medium text-sky-700 mb-1">
+                  今日のアドバイス
+                </p>
+                <ul className="text-sm text-sky-900 space-y-1">
+                  {getClothingAdvice(selectedDay).map((tip) => (
+                    <li key={tip}>・{tip}</li>
+                  ))}
+                </ul>
               </div>
 
               {/* 3時間ごとの内訳 */}
