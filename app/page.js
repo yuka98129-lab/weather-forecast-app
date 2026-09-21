@@ -1,15 +1,53 @@
 "use client";
 
-import { useState } from "react";
-import { groupForecastByDay, getClothingAdvice } from "@/lib/forecast";
+import { useEffect, useState } from "react";
+import {
+  groupForecastByDay,
+  getClothingAdvice,
+  getUviLabel,
+  buildSpeechText,
+} from "@/lib/forecast";
+
+const FAVORITES_KEY = "weather-app-favorite-cities";
 
 export default function Home() {
   const [cityInput, setCityInput] = useState("Tokyo");
   const [cityName, setCityName] = useState(null);
+  const [lastCityQuery, setLastCityQuery] = useState(null);
   const [days, setDays] = useState([]);
   const [selectedKey, setSelectedKey] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [favorites, setFavorites] = useState([]);
+  const [speaking, setSpeaking] = useState(false);
+
+  // お気に入り都市をブラウザに保存しておき、次回アクセス時にも復元する
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(FAVORITES_KEY);
+      if (saved) setFavorites(JSON.parse(saved));
+    } catch {
+      // 読み込みに失敗しても致命的ではないので何もしない
+    }
+  }, []);
+
+  function saveFavorites(next) {
+    setFavorites(next);
+    try {
+      window.localStorage.setItem(FAVORITES_KEY, JSON.stringify(next));
+    } catch {
+      // 保存に失敗しても致命的ではないので何もしない
+    }
+  }
+
+  function toggleFavorite() {
+    if (!lastCityQuery) return;
+    const isFav = favorites.includes(lastCityQuery);
+    const next = isFav
+      ? favorites.filter((f) => f !== lastCityQuery)
+      : [...favorites, lastCityQuery];
+    saveFavorites(next);
+  }
 
   async function fetchWeather(params) {
     setLoading(true);
@@ -23,10 +61,16 @@ export default function Home() {
         throw new Error(data.error || "天気情報の取得に失敗しました。");
       }
 
-      const grouped = groupForecastByDay(data.list, data.timezoneOffset ?? 0);
+      const grouped = groupForecastByDay(data.list, data.timezoneOffset ?? 0).map(
+        (day) => ({
+          ...day,
+          uvi: data.uviByDate ? data.uviByDate[day.key] ?? null : null,
+        })
+      );
       setDays(grouped);
       setSelectedKey(grouped[0]?.key ?? null);
       setCityName(`${data.city}${data.country ? `, ${data.country}` : ""}`);
+      setLastCityQuery(params.city ?? null);
     } catch (err) {
       setError(err.message);
       setDays([]);
@@ -40,6 +84,11 @@ export default function Home() {
     e.preventDefault();
     if (!cityInput.trim()) return;
     fetchWeather({ city: cityInput.trim() });
+  }
+
+  function handleFavoriteClick(favCity) {
+    setCityInput(favCity);
+    fetchWeather({ city: favCity });
   }
 
   function handleUseLocation() {
@@ -62,7 +111,31 @@ export default function Home() {
     );
   }
 
+  function handleSpeak() {
+    if (!selectedDay) return;
+    if (!("speechSynthesis" in window)) {
+      setError("このブラウザでは音声読み上げに対応していません。");
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(
+      buildSpeechText(selectedDay, cityName)
+    );
+    utterance.lang = "ja-JP";
+    utterance.onstart = () => setSpeaking(true);
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function handleStopSpeak() {
+    window.speechSynthesis.cancel();
+    setSpeaking(false);
+  }
+
   const selectedDay = days.find((d) => d.key === selectedKey);
+  const isFavorite = lastCityQuery ? favorites.includes(lastCityQuery) : false;
+  const uviInfo = selectedDay ? getUviLabel(selectedDay.uvi) : null;
 
   return (
     <main className="flex-1 w-full max-w-2xl mx-auto px-4 py-10 flex flex-col gap-6">
@@ -96,6 +169,21 @@ export default function Home() {
         </button>
       </form>
 
+      {/* お気に入り都市 */}
+      {favorites.length > 0 && (
+        <div className="flex flex-wrap gap-2 justify-center">
+          {favorites.map((fav) => (
+            <button
+              key={fav}
+              onClick={() => handleFavoriteClick(fav)}
+              className="flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100 transition"
+            >
+              ★ {fav}
+            </button>
+          ))}
+        </div>
+      )}
+
       {loading && (
         <p className="text-center text-sm text-slate-500">読み込み中...</p>
       )}
@@ -109,7 +197,28 @@ export default function Home() {
       {days.length > 0 && (
         <>
           {cityName && (
-            <p className="text-center text-slate-600 font-medium">{cityName}</p>
+            <div className="flex items-center justify-center gap-2">
+              <p className="text-center text-slate-600 font-medium">
+                {cityName}
+              </p>
+              <button
+                type="button"
+                onClick={toggleFavorite}
+                disabled={!lastCityQuery}
+                title={
+                  lastCityQuery
+                    ? "お気に入りに登録/解除"
+                    : "現在地はお気に入り登録できません"
+                }
+                className={`text-lg leading-none ${
+                  lastCityQuery
+                    ? "cursor-pointer"
+                    : "cursor-not-allowed opacity-30"
+                } ${isFavorite ? "text-amber-500" : "text-slate-300"}`}
+              >
+                ★
+              </button>
+            </div>
           )}
 
           {/* カレンダー: 5日分の日付選択 */}
@@ -156,7 +265,7 @@ export default function Home() {
                 </span>
               </p>
 
-              <div className="grid grid-cols-2 gap-4 w-full mt-2 text-center">
+              <div className="grid grid-cols-3 gap-3 w-full mt-2 text-center">
                 <div className="rounded-lg bg-slate-50 py-3">
                   <p className="text-xs text-slate-500">湿度</p>
                   <p className="text-lg font-semibold">
@@ -166,6 +275,14 @@ export default function Home() {
                 <div className="rounded-lg bg-slate-50 py-3">
                   <p className="text-xs text-slate-500">降水確率</p>
                   <p className="text-lg font-semibold">{selectedDay.maxPop}%</p>
+                </div>
+                <div className="rounded-lg bg-slate-50 py-3">
+                  <p className="text-xs text-slate-500">紫外線</p>
+                  {uviInfo ? (
+                    <p className="text-lg font-semibold">{uviInfo.level}</p>
+                  ) : (
+                    <p className="text-xs text-slate-400 mt-1">取得できません</p>
+                  )}
                 </div>
               </div>
 
@@ -178,8 +295,18 @@ export default function Home() {
                   {getClothingAdvice(selectedDay).map((tip) => (
                     <li key={tip}>・{tip}</li>
                   ))}
+                  {uviInfo && <li>・☀️ {uviInfo.advice}</li>}
                 </ul>
               </div>
+
+              {/* 音声読み上げ */}
+              <button
+                type="button"
+                onClick={speaking ? handleStopSpeak : handleSpeak}
+                className="w-full rounded-lg border border-slate-300 py-2 text-sm font-medium hover:bg-slate-50 transition"
+              >
+                {speaking ? "⏹ 読み上げを止める" : "🔊 音声で読み上げる"}
+              </button>
 
               {/* 3時間ごとの内訳 */}
               <div className="w-full overflow-x-auto mt-2">

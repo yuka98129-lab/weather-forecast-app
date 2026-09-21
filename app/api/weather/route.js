@@ -1,9 +1,34 @@
 import { NextResponse } from "next/server";
+import { localDateKeyFromUnix } from "@/lib/forecast";
 
 // APIキーはサーバー側だけで参照する(NEXT_PUBLIC_を付けないのでクライアントには渡らない)
 const API_KEY = process.env.OPENWEATHER_API_KEY;
 const BASE_URL = "https://api.openweathermap.org/data/2.5/forecast";
 const GEO_URL = "https://api.openweathermap.org/geo/1.0/direct";
+const ONECALL_URL = "https://api.openweathermap.org/data/3.0/onecall";
+
+// UV指数(One Call API)は取得できないプラン/キーもあるので、
+// 失敗しても天気予報自体は表示できるように、ここだけ個別にtry/catchする
+async function fetchUviByDate(latitude, longitude) {
+  try {
+    const res = await fetch(
+      `${ONECALL_URL}?lat=${latitude}&lon=${longitude}&exclude=minutely,hourly,alerts&units=metric&appid=${API_KEY}`
+    );
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    if (!Array.isArray(data.daily)) return null;
+
+    const uviByDate = {};
+    for (const day of data.daily) {
+      const key = localDateKeyFromUnix(day.dt, data.timezone_offset ?? 0);
+      uviByDate[key] = day.uvi;
+    }
+    return uviByDate;
+  } catch {
+    return null;
+  }
+}
 
 export async function GET(request) {
   if (!API_KEY) {
@@ -67,12 +92,14 @@ export async function GET(request) {
     }
 
     const data = await forecastRes.json();
+    const uviByDate = await fetchUviByDate(latitude, longitude);
 
     return NextResponse.json({
       city: resolvedName || data.city?.name,
       country: data.city?.country,
       timezoneOffset: data.city?.timezone, // 秒単位
       list: data.list, // 3時間ごとの予報(5日分)
+      uviByDate, // 日付("YYYY-MM-DD")ごとのUV指数。取得できない場合はnull
     });
   } catch (err) {
     return NextResponse.json(
