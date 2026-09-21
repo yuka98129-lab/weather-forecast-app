@@ -5,6 +5,7 @@ import {
   groupForecastByDay,
   getClothingAdvice,
   getUviLabel,
+  getLaundryAdvice,
   buildSpeechText,
 } from "@/lib/forecast";
 
@@ -136,6 +137,7 @@ export default function Home() {
   const selectedDay = days.find((d) => d.key === selectedKey);
   const isFavorite = lastCityQuery ? favorites.includes(lastCityQuery) : false;
   const uviInfo = selectedDay ? getUviLabel(selectedDay.uvi) : null;
+  const laundryInfo = selectedDay ? getLaundryAdvice(selectedDay) : null;
 
   return (
     <main className="flex-1 w-full max-w-2xl mx-auto px-4 py-10 flex flex-col gap-6">
@@ -296,6 +298,11 @@ export default function Home() {
                     <li key={tip}>・{tip}</li>
                   ))}
                   {uviInfo && <li>・☀️ {uviInfo.advice}</li>}
+                  {laundryInfo && (
+                    <li>
+                      ・🧺 洗濯指数: {laundryInfo.level}({laundryInfo.advice})
+                    </li>
+                  )}
                 </ul>
               </div>
 
